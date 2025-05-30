@@ -69,7 +69,6 @@ airflow/airflow.cfg
 *.minio.sys/
 
 # Data files
-raw_data/
 processed_data/
 
 # Test coverage
