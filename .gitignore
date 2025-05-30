@@ -1,0 +1,125 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+pipeline.log
+
+# Environment variables
+.env
+.env.local
+
+# Database
+postgres_data/
+minio_data/
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Local development
+*.pyc
+*.pyo
+*.pyd
+*.pyc
+*.so
+*.orig
+.DS_Store
+
+# Streamlit cache
+.streamlit/
+
+# Airflow
+airflow/logs/
+airflow/scheduler/
+airflow/webserver/
+airflow/airflow.cfg
+
+# MinIO
+*.minio.sys/
+
+# Data files
+raw_data/
+processed_data/
+
+# Test coverage
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.coverage.xml
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+*.cover
+
+# Debug
+*.pdb
+*.pyc
+*~
+
+# Local development settings
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Cache
+.cache/
+*.cache
+
+# Local development data
+*.db
+*.sqlite3

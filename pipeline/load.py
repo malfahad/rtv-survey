@@ -1,0 +1,71 @@
+import pandas as pd
+import sqlalchemy
+from typing import Optional
+from datetime import datetime
+import logging
+from minio import Minio
+import os
+import io
+
+logger = logging.getLogger(__name__)
+
+class DataLoader:
+    def __init__(self):
+        self.db_url = "postgresql://rtv-test-user:rtv-test-password@postgres:5432/rtv_survey"
+        self.engine = sqlalchemy.create_engine(self.db_url)
+        
+        # Initialize MinIO client
+        self.minio_client = Minio(
+            "minio:9000",
+            access_key=os.getenv('MINIO_ACCESS_KEY'),
+            secret_key=os.getenv('MINIO_SECRET_KEY'),
+            secure=False
+        )
+        self.bucket_name = "rtv-survey-results"
+
+    def load_to_database(self, df: pd.DataFrame, survey_year: str):
+        """Load transformed data to database"""
+        try:
+            # Get existing columns from database
+            with self.engine.connect() as connection:
+                result = connection.execute(sqlalchemy.text("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_schema = 'metrics' 
+                    AND table_name = 'survey_summary'
+                """))
+                db_columns = [row[0] for row in result]
+
+            # Filter DataFrame to only include columns that exist in database
+            df_filtered = df[[col for col in df.columns if col in db_columns]]
+
+            # Load filtered data to database
+            df_filtered.to_sql('survey_summary', self.engine, schema='metrics', 
+                             if_exists='append', index=False)
+            logger.info("Data loaded to database successfully")
+        except Exception as e:
+            logger.error(f"Error loading data to database: {str(e)}")
+            raise
+
+    def load_to_minio(self, df: pd.DataFrame, survey_year: str, object_name: str = None):
+        """Load data to MinIO with optional custom object name"""
+        try:
+            # Convert DataFrame to CSV
+            csv_data = df.to_csv(index=False)
+            
+            # Generate object name if not provided
+            if not object_name:
+                object_name = f"survey_{survey_year}.csv"
+            
+            # Upload to MinIO
+            self.minio_client.put_object(
+                self.bucket_name,
+                object_name,
+                data=io.BytesIO(csv_data.encode('utf-8')),
+                length=len(csv_data),
+                content_type='application/csv'
+            )
+            logger.info(f"Data loaded to MinIO: {object_name}")
+        except Exception as e:
+            logger.error(f"Error loading data to MinIO: {str(e)}")
+            raise

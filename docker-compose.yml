@@ -1,0 +1,83 @@
+
+networks:
+  rtv_network:
+    driver: bridge
+
+services:
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: rtv-test-user
+      MINIO_ROOT_PASSWORD: rtv-test-password
+    volumes:
+      - minio_data:/data/minio
+      - ./raw_data:/data/raw-data
+    command: server /data/minio --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9001/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    networks:
+      - rtv_network
+
+
+
+  postgres:
+    image: postgres:15
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: 'rtv-test-user'
+      POSTGRES_PASSWORD: 'rtv-test-password'
+      POSTGRES_DB: rtv_survey
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    networks:
+      - rtv_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rtv-test-user -d rtv_survey"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+      
+  pipeline:
+    build:
+      context: ./pipeline
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      - DATABASE_URL=postgresql://rtv-test-user:rtv-test-password@postgres:5432/rtv_survey
+    volumes:
+      - ./pipeline:/app
+    networks:
+      - rtv_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    ports:
+      - "8501:8501"
+    environment:
+      - DATABASE_URL=postgresql://rtv-test-user:rtv-test-password@postgres:5432/rtv_survey
+    volumes:
+      - ./dashboard:/app
+    networks:
+      - rtv_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+volumes:
+  minio_data:
+  postgres_data:
