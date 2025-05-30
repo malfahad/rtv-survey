@@ -6,11 +6,16 @@ import logging
 from minio import Minio
 import os
 import io
+import threading
+import time
 
 logger = logging.getLogger(__name__)
 
 class DataLoader:
     def __init__(self):
+        self.stop_event = threading.Event()
+        self.paused_event = threading.Event()
+        self.progress = None
         self.db_url = "postgresql://rtv-test-user:rtv-test-password@postgres:5432/rtv_survey"
         self.engine = sqlalchemy.create_engine(self.db_url)
         
@@ -23,11 +28,41 @@ class DataLoader:
         )
         self.bucket_name = "rtv-survey-results"
 
+    def pause(self):
+        """Pause the loading process"""
+        self.paused_event.set()
+        logger.info("Data loading paused")
+
+    def resume(self):
+        """Resume the loading process"""
+        self.paused_event.clear()
+        logger.info("Data loading resumed")
+
+    def stop(self):
+        """Stop the loading process"""
+        self.stop_event.set()
+        logger.info("Data loading stopped")
+
+    def wait_for_resume(self):
+        """Wait until paused event is cleared or stop event is set"""
+        while self.paused_event.is_set() and not self.stop_event.is_set():
+            time.sleep(1)
+            if self.stop_event.is_set():
+                raise KeyboardInterrupt("Loading stopped by user")
+
     def load_to_database(self, df: pd.DataFrame, survey_year: str):
         """Load transformed data to database"""
         try:
-            # Get existing columns from database
-            with self.engine.connect() as connection:
+            self.wait_for_resume()
+            
+            # Start a transaction
+            with self.engine.begin() as connection:
+                # Truncate the table first
+                connection.execute(sqlalchemy.text("""
+                    TRUNCATE TABLE metrics.survey_summary;
+                """))
+
+                # Get existing columns from database
                 result = connection.execute(sqlalchemy.text("""
                     SELECT column_name 
                     FROM information_schema.columns 
@@ -36,12 +71,13 @@ class DataLoader:
                 """))
                 db_columns = [row[0] for row in result]
 
-            # Filter DataFrame to only include columns that exist in database
-            df_filtered = df[[col for col in df.columns if col in db_columns]]
+                # Filter DataFrame to only include columns that exist in database
+                df_filtered = df[[col for col in df.columns if col in db_columns]]
 
-            # Load filtered data to database
-            df_filtered.to_sql('survey_summary', self.engine, schema='metrics', 
-                             if_exists='append', index=False)
+                # Load filtered data to database
+                df_filtered.to_sql('survey_summary', connection, schema='metrics', 
+                                 if_exists='append', index=False)
+            
             logger.info("Data loaded to database successfully")
         except Exception as e:
             logger.error(f"Error loading data to database: {str(e)}")

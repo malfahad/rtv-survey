@@ -4,10 +4,9 @@ from datetime import datetime
 from threading import Thread, Event
 from typing import Optional
 import logging
+import pandas as pd
 
 from extract import DataExtractor
-from transform import DataTransformer
-from load import DataLoader
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'rtv_test_secret_key_here'
@@ -30,24 +29,45 @@ console_handler.setFormatter(
 )
 logger.addHandler(console_handler)
 
-class PipelineJob:
-    def __init__(self, id, status, message, start_time=None):
+class PipelineJob(DataExtractor):
+    def __init__(self, id: str, status: str, message: str, start_time=None):
+        super().__init__()
         self.id = id
         self.status = status
         self.message = message
         self.start_time = start_time or datetime.now()
+        self.pause_time: Optional[datetime] = None
+        self.end_time: Optional[datetime] = None
         self.thread: Optional[Thread] = None
-        self.stop_event = Event()
 
     def start(self):
         """Start the pipeline in a background thread"""
         if self.thread and self.thread.is_alive():
-            raise RuntimeError("Job is already running")
+            logger.warning(f"Pipeline {self.id} is already running")
+            return
 
-        self.thread = Thread(target=self.run_pipeline)
-        self.thread.daemon = True
+        self.thread = Thread(target=self.run_pipeline, daemon=True)
         self.thread.start()
         logger.info(f"Started pipeline thread {self.id}")
+
+    def pause(self):
+        """Pause the entire pipeline"""
+        self.pause_time = datetime.now()
+        super().pause()
+        logger.info(f"Pipeline {self.id} paused")
+
+    def resume(self):
+        """Resume the entire pipeline"""
+        self.status = "Running"
+        self.message = "Pipeline resumed"
+        self.pause_time = None
+        super().resume()
+        logger.info(f"Pipeline {self.id} resumed")
+
+    def stop(self):
+        """Stop the entire pipeline"""
+        super().stop()
+        logger.info(f"Pipeline {self.id} stopped")
 
     def run_pipeline(self):
         try:
@@ -56,54 +76,71 @@ class PipelineJob:
             
             # Load data
             self.message = "Loading survey data..."
-            df = DataExtractor().extract_survey_data()
+            df = self.extract_survey_data()
             
             # Transform data
             self.message = "Transforming data..."
-            transformed_data = DataTransformer().transform_survey_data(df)
+            transformed_data = self.transform_survey_data(df)
             
             # Load to MinIO
             self.message = "Loading to MinIO..."
-            loader = DataLoader()
             
             # Load both detailed and overall metrics
-            loader.load_to_minio(transformed_data['detailed_metrics'], survey_year='2021', object_name='detailed_metrics.csv')
-            loader.load_to_minio(transformed_data['overall_metrics'], survey_year='2021', object_name='overall_metrics.csv')
+            self.wait_for_resume()
+            self.load_to_minio(transformed_data['detailed_metrics'], survey_year='2021', object_name='detailed_metrics.csv')
+            self.wait_for_resume()
+            self.load_to_minio(transformed_data['overall_metrics'], survey_year='2021', object_name='overall_metrics.csv')
             
             # Load to database
             self.message = "Loading to database..."
-            loader.load_to_database(transformed_data['detailed_metrics'], survey_year='2021')
+            self.wait_for_resume()
+            self.load_to_database(transformed_data['detailed_metrics'], survey_year='2021')
             
             self.status = "Completed"
             self.message = "Pipeline completed successfully"
+            self.end_time = datetime.now()
             logger.info(f"Pipeline {self.id} completed successfully")
+        except KeyboardInterrupt:
+            logger.info(f"Pipeline {self.id} stopped by user")
+            self.status = "Stopped"
+            self.message = "Pipeline stopped by user"
         except Exception as e:
+            logger.error(f"Pipeline failed: {str(e)}")
             self.status = "Failed"
             self.message = f"Pipeline failed: {str(e)}"
             logger.error(f"Pipeline {self.id} failed: {str(e)}")
         finally:
-            self.stop_event.set()
-
-    def pause(self):
-        self.status = "Paused"
-        self.message = "Pipeline paused"
-        self.stop_event.set()
-
-    def resume(self):
-        self.status = "Running"
-        self.message = "Pipeline resumed"
-        self.stop_event.clear()
+            super().stop()
 
     def cancel(self):
+        """Cancel the pipeline"""
         self.status = "Cancelled"
         self.message = "Pipeline cancelled"
+        self.end_time = datetime.now()
+        
+        # Set stop event to signal thread to stop
         self.stop_event.set()
+        
+        # Wait for thread to finish
+        if self.thread and self.thread.is_alive():
+            self.thread.join()
+            self.thread = None
+        
+        logger.info(f"Pipeline {self.id} cancelled")
 
     @property
     def duration(self):
-        if self.start_time:
-            return datetime.now() - self.start_time
-        return None
+        """Return the duration of the job in seconds"""
+        if self.status == 'Running':
+            return (datetime.now() - self.start_time).total_seconds()
+        elif self.status == 'Paused':
+            if self.pause_time:
+                return (self.pause_time - self.start_time).total_seconds()
+            return 0
+        else:  # Completed, Failed, Cancelled
+            if self.end_time:
+                return (self.end_time - self.start_time).total_seconds()
+            return 0
 
 class PipelineManager:
     def __init__(self):
@@ -137,11 +174,15 @@ pipeline_manager = PipelineManager()
 def index():
     return render_template(
         'index.html',
-        jobs=pipeline_manager.jobs.values()
+        jobs=reversed(pipeline_manager.jobs.values())
     )
 
 @bp.route('/new', methods=['POST'])
 def new_job():
+    if any(job.status in ('Running', 'Paused') for job in pipeline_manager.jobs.values()):
+        flash('Cannot start a new pipeline while another is running or paused')
+        return redirect('/')
+
     job = pipeline_manager.create_job()
     flash(f'Started new pipeline job #{job.id}')
     return redirect('/')

@@ -2,11 +2,14 @@ import pandas as pd
 import logging
 from minio import Minio
 from io import StringIO
+from transform import DataTransformer
 
 logger = logging.getLogger(__name__)
 
-class DataExtractor:
+class DataExtractor(DataTransformer):
     def __init__(self):
+        super().__init__()
+        
         # Initialize MinIO client
         self.minio_client = Minio(
             "minio:9000",
@@ -19,6 +22,7 @@ class DataExtractor:
     def extract_survey_data(self) -> pd.DataFrame:
         """Load survey data from MinIO"""
         try:
+            self.wait_for_resume()
             # Get list of CSV files in the bucket
             objects = self.minio_client.list_objects(self.bucket_name, recursive=True)
             csv_files = [obj.object_name for obj in objects if obj.object_name.endswith('.csv')]
@@ -29,6 +33,7 @@ class DataExtractor:
             # Load data from each CSV file
             dfs = []
             for file_name in csv_files:
+                self.wait_for_resume()
                 try:
                     # Get file content
                     data = self.minio_client.get_object(self.bucket_name, file_name)
@@ -49,7 +54,6 @@ class DataExtractor:
             combined_df = pd.concat(dfs, ignore_index=True)
             logger.info("Survey data loaded successfully from MinIO")
             return combined_df
-            
         except Exception as e:
-            logger.error(f"Error loading survey data: {str(e)}")
+            logger.error(f"Error extracting survey data: {str(e)}")
             raise

@@ -2,12 +2,13 @@ import pandas as pd
 from typing import Optional
 from datetime import datetime
 import logging
+from load import DataLoader
 
 logger = logging.getLogger(__name__)
 
-class DataTransformer:
+class DataTransformer(DataLoader):
     def __init__(self):
-        pass
+        super().__init__()
 
     def transform_survey_data(self, df: pd.DataFrame) -> dict:
         """Transform survey data into meaningful metrics"""
@@ -16,16 +17,20 @@ class DataTransformer:
             df = df.copy()
             
             # Convert date columns to datetime if they exist
+            self.wait_for_resume()
             datetime_cols = ['SubmissionDate', 'starttime', 'endtime']
             for col in datetime_cols:
+                self.wait_for_resume()
                 if col in df.columns:
                     df[col] = pd.to_datetime(df[col])
             
             # Calculate survey duration if datetime columns exist
+            self.wait_for_resume()
             if 'starttime' in df.columns and 'endtime' in df.columns:
                 df['survey_duration'] = (df['endtime'] - df['starttime']).dt.total_seconds() / 60
             
             # Get available grouping columns
+            self.wait_for_resume()
             grouping_cols = ['district', 'Quartile', 'source_file']
             available_cols = [col for col in grouping_cols if col in df.columns]
             
@@ -53,6 +58,7 @@ class DataTransformer:
             }
             
             # Remove None values from metrics
+            self.wait_for_resume()
             metrics = {k: {k2: v2 for k2, v2 in v.items() if v2 is not None} 
                       for k, v in metrics.items()}
             
@@ -72,6 +78,7 @@ class DataTransformer:
                 detailed_metrics.columns = ['_'.join(col).strip() if isinstance(col, tuple) else col 
                                          for col in detailed_metrics.columns.values]
                 
+                self.wait_for_resume()
                 # Calculate overall metrics
                 overall_metrics = df.groupby(['district', 'Quartile']).agg({
                     **metrics['household'],
@@ -80,6 +87,7 @@ class DataTransformer:
                 }).reset_index()
                 
                 # Flatten overall metrics columns
+                self.wait_for_resume()
                 overall_metrics.columns = ['_'.join(col).strip() if isinstance(col, tuple) else col 
                                         for col in overall_metrics.columns.values]
             

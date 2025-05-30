@@ -63,17 +63,17 @@
 
     <script>
         function pauseJob(jobId) {
-            fetch(`/\${jobId}/pause`, { method: 'POST' })
+            fetch(`/${jobId}/pause`, { method: 'POST' })
                 .then(response => window.location.reload());
         }
 
         function resumeJob(jobId) {
-            fetch(`/\${jobId}/resume`, { method: 'POST' })
+            fetch(`/${jobId}/resume`, { method: 'POST' })
                 .then(response => window.location.reload());
         }
 
         function cancelJob(jobId) {
-            fetch(`/\${jobId}/cancel`, { method: 'POST' })
+            fetch(`/${jobId}/cancel`, { method: 'POST' })
                 .then(response => window.location.reload());
         }
     </script>
